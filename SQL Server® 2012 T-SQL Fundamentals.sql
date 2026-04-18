@@ -738,3 +738,553 @@ ORDER BY custid
 
 -- 7
 
+SELECT * FROM Sales.Customers
+SELECT * FROM Sales.Orders
+SELECT * FROM Sales.OrderDetails
+
+
+
+SELECT custid, companyname
+FROM Sales.Customers
+WHERE custid in (SELECT custid 
+				FROM Sales.Orders
+				WHERE orderid in(SELECT orderid 
+								FROM Sales.OrderDetails
+								WHERE productid = 12))
+
+
+-- 8 
+
+SELECT * FROM Sales.CustOrders
+ORDER BY custid
+
+SELECT *, SUM(qty) OVER(partition by  order by custid )
+FROM Sales.CustOrders
+ORDER BY custid
+
+
+
+SELECT custid, ordermonth, qty, (SELECT SUM(O2.qty)
+								FROM Sales.CustOrders AS O2
+								WHERE O2.custid = O1.custid AND O2.ordermonth <= O1.ordermonth) AS runqty
+FROM Sales.CustOrders AS O1
+ORDER BY custid, ordermonth;
+
+
+SELECT * ,(SELECT SUM(O2.qty)
+			FROM Sales.CustOrders AS O2
+			WHERE O2.custid = O1.custid AND O2.ordermonth <= O1.ordermonth) AS runqty
+FROM Sales.CustOrders as O1
+ORDER BY custid, ordermonth
+
+
+-- Chapte 5 Table Expressions --
+
+SELECT
+ YEAR(orderdate) AS orderyear,
+ COUNT(DISTINCT custid) AS numcusts
+FROM Sales.Orders
+GROUP BY orderyear;
+
+
+SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+FROM (SELECT YEAR(orderdate) AS orderyear, custid
+ FROM Sales.Orders) AS D
+GROUP BY orderyear;
+
+
+
+DECLARE @empid AS INT = 3;
+
+SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+FROM (SELECT YEAR(orderdate) AS orderyear, custid
+	FROM Sales.Orders
+	WHERE empid = @empid) AS D
+GROUP BY orderyear;
+
+
+
+SELECT orderyear, numcusts
+FROM (SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+	FROM (SELECT YEAR(orderdate) AS orderyear, custid
+	FROM Sales.Orders) AS D1
+	GROUP BY orderyear) AS D2
+WHERE numcusts > 70;
+
+
+
+
+SELECT Cur.orderyear,
+ Cur.numcusts AS curnumcusts, Prv.numcusts AS prvnumcusts,
+ Cur.numcusts - Prv.numcusts AS growth
+FROM (SELECT YEAR(orderdate) AS orderyear,
+	COUNT(DISTINCT custid) AS numcusts
+	FROM Sales.Orders
+	GROUP BY YEAR(orderdate)) AS Cur LEFT OUTER JOIN (SELECT YEAR(orderdate) AS orderyear,
+													COUNT(DISTINCT custid) AS numcusts
+ FROM Sales.Orders
+ GROUP BY YEAR(orderdate)) AS Prv
+ ON Cur.orderyear = Prv.orderyear + 1;
+
+
+
+
+;WITH USACusts AS
+(
+ SELECT custid, companyname
+ FROM Sales.Customers
+ WHERE country = N'USA'
+)
+SELECT * FROM USACusts;
+
+
+WITH C AS
+(
+ SELECT YEAR(orderdate) AS orderyear, custid
+ FROM Sales.Orders
+)
+SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+FROM C
+GROUP BY orderyear;
+
+
+
+WITH C(orderyear, custid) AS
+(
+ SELECT YEAR(orderdate), custid
+ FROM Sales.Orders
+)
+SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+FROM C
+GROUP BY orderyear;
+
+
+
+WITH C1 AS
+(
+ SELECT YEAR(orderdate) AS orderyear, custid
+ FROM Sales.Orders
+),
+C2 AS
+(
+ SELECT orderyear, COUNT(DISTINCT custid) AS numcusts
+ FROM C1
+ GROUP BY orderyear
+)
+SELECT orderyear, numcusts
+FROM C2
+WHERE numcusts > 70;
+
+
+
+
+WITH YearlyCount AS
+(
+ SELECT YEAR(orderdate) AS orderyear,
+ COUNT(DISTINCT custid) AS numcusts
+ FROM Sales.Orders
+ GROUP BY YEAR(orderdate)
+)
+SELECT Cur.orderyear,
+ Cur.numcusts AS curnumcusts, Prv.numcusts AS prvnumcusts,
+ Cur.numcusts - Prv.numcusts AS growth
+FROM YearlyCount AS Cur
+ LEFT OUTER JOIN YearlyCount AS Prv
+ ON Cur.orderyear = Prv.orderyear + 1; 
+
+
+
+ WITH EmpsCTE AS
+(
+ SELECT empid, mgrid, firstname, lastname
+ FROM HR.Employees
+ WHERE empid = 2
+
+ UNION ALL
+
+ SELECT C.empid, C.mgrid, C.firstname, C.lastname
+ FROM EmpsCTE AS P
+ JOIN HR.Employees AS C
+ ON C.mgrid = P.empid
+)
+SELECT empid, mgrid, firstname, lastname
+FROM EmpsCTE;
+
+
+
+--- view
+
+
+IF OBJECT_ID('Sales.USACusts') IS NOT NULL
+	DROP VIEW Sales.USACusts;
+GO
+CREATE VIEW Sales.USACusts
+AS
+SELECT
+ custid, companyname, contactname, contacttitle, address,
+ city, region, postalcode, country, phone, fax
+FROM Sales.Customers
+WHERE country = N'USA';
+GO 
+
+
+ALTER VIEW Sales.USACusts
+AS
+SELECT
+ custid, companyname, contactname, contacttitle, address,
+ city, region, postalcode, country, phone, fax
+FROM Sales.Customers
+WHERE country = N'USA'
+ORDER BY region
+OFFSET 0 ROWS;
+GO
+
+
+
+CREATE VIEW dbo.EmployeeView
+WITH ENCRYPTION
+AS
+SELECT empid, name, salary
+FROM dbo.Employees;
+
+
+
+CREATE VIEW dbo.EmployeeView
+WITH SCHEMABINDING
+AS
+SELECT empid, name, salary
+FROM dbo.Employees;
+
+
+
+
+CREATE VIEW dbo.HighSalaryEmployees
+AS
+SELECT empid, name, salary
+FROM dbo.Employees
+WHERE salary > 5000
+WITH CHECK OPTION;
+
+-- functions
+
+USE TSQL2012;
+IF OBJECT_ID('dbo.GetCustOrders') IS NOT NULL
+	DROP FUNCTION dbo.GetCustOrders;
+GO
+CREATE FUNCTION dbo.GetCustOrders
+	(@cid AS INT) RETURNS TABLE
+AS
+RETURN
+	SELECT orderid, custid, empid, orderdate, requireddate, shippeddate, shipperid, freight, shipname, shipaddress, shipcity, shipregion, shippostalcode, shipcountry
+	FROM Sales.Orders
+	WHERE custid = @cid;
+GO
+
+SELECT orderid, custid
+FROM dbo.GetCustOrders(1) AS O;
+
+
+
+-- apply
+
+SELECT C.custid, A.orderid, A.orderdate
+FROM Sales.Customers AS C
+ CROSS APPLY
+ (SELECT TOP (3) orderid, empid, orderdate, requireddate
+ FROM Sales.Orders AS O
+ WHERE O.custid = C.custid
+ ORDER BY orderdate DESC, orderid DESC) AS A;
+
+
+
+SELECT C.custid, A.orderid, A.orderdate
+FROM Sales.Customers AS C
+ OUTER APPLY
+ (SELECT TOP (3) orderid, empid, orderdate, requireddate
+ FROM Sales.Orders AS O
+ WHERE O.custid = C.custid
+ ORDER BY orderdate DESC, orderid DESC) AS A;
+
+
+ -- exercises
+
+ -- 1
+
+;WITH C as (SELECT empid, MAX(orderdate)  as orderdatemax FROM Sales.Orders
+GROUP BY empid)
+
+SELECT A.empid, A.orderdate, A.orderid, A.custid 
+FROM Sales.Orders as A , C
+WHERE A.empid = C.empid and C.orderdatemax = A.orderdate
+
+
+-- 2
+
+;WITH F as (SELECT orderid, orderdate, custid, empid , ROW_NUMBER() OVER(ORDER BY orderid, orderdate) as rownb 
+			FROM Sales.Orders)
+
+SELECT * FROM F
+WHERE  10 < rownb  and rownb < 21
+
+-- 3
+
+SELECT empid, mgrid, firstname, lastname FROM HR.Employees
+
+
+;WITH EmpsCTE AS
+(
+ SELECT empid, mgrid, firstname, lastname
+ FROM HR.Employees
+ WHERE empid = 9
+
+ UNION ALL
+
+ SELECT P.empid, P.mgrid, P.firstname, P.lastname
+ FROM EmpsCTE AS C
+ JOIN HR.Employees AS P
+ ON C.mgrid = P.empid
+)
+SELECT empid, mgrid, firstname, lastname
+FROM EmpsCTE;
+
+-- 5
+
+SELECT * FROM Production.Products
+
+
+GO 
+CREATE FUNCTION dbo.func1
+(@sumid AS INT, @n AS INT) RETURNS TABLE
+AS RETURN (
+	SELECT productid, productname, MAX(unitprice) OVER() as maxprice FROM Production.Products
+	WHERE supplierid = @sumid and productid = @n)
+
+USE TSQL2012;
+IF OBJECT_ID('Production.TopProducts') IS NOT NULL
+ DROP FUNCTION Production.TopProducts;
+GO
+CREATE FUNCTION Production.TopProducts
+ (@supid AS INT, @n AS INT)
+ RETURNS TABLE
+AS
+RETURN
+ SELECT TOP (@n) productid, productname, unitprice
+ FROM Production.Products
+ WHERE supplierid = @supid
+ ORDER BY unitprice DESC;
+GO
+
+
+
+-- Chapter 6 Set Operators -- 
+
+-- Chapter 6 Beyond the Fundamentals of Querying --
+
+
+-- window functions
+
+SELECT orderid, custid, val,
+ ROW_NUMBER() OVER(ORDER BY val) AS rownum,
+ RANK() OVER(ORDER BY val) AS rank,
+ DENSE_RANK() OVER(ORDER BY val) AS dense_rank,
+ NTILE(100) OVER(ORDER BY val) AS ntile
+FROM Sales.OrderValues
+ORDER BY val;
+
+
+SELECT orderid, custid, val,
+ ROW_NUMBER() OVER(PARTITION BY custid
+ ORDER BY val) AS rownum
+FROM Sales.OrderValues
+ORDER BY custid, val;
+
+
+SELECT DISTINCT val, ROW_NUMBER() OVER(ORDER BY val) AS rownum
+FROM Sales.OrderValues;
+
+
+SELECT val, ROW_NUMBER() OVER(ORDER BY val) AS rownum
+FROM Sales.OrderValues
+GROUP BY val;
+
+
+SELECT custid, orderid, val,
+ LAG(val) OVER(PARTITION BY custid
+ ORDER BY orderdate, orderid) AS prevval,
+ LEAD(val) OVER(PARTITION BY custid
+ ORDER BY orderdate, orderid) AS nextval
+FROM Sales.OrderValues;
+
+
+
+SELECT custid, orderid, val,
+ FIRST_VALUE(val) OVER(PARTITION BY custid
+ ORDER BY orderdate, orderid
+ ROWS BETWEEN UNBOUNDED PRECEDING
+ AND CURRENT ROW) AS firstval,
+ LAST_VALUE(val) OVER(PARTITION BY custid
+ ORDER BY orderdate, orderid
+ ROWS BETWEEN CURRENT ROW
+ AND UNBOUNDED FOLLOWING) AS lastval
+FROM Sales.OrderValues
+ORDER BY custid, orderdate, orderid;
+
+
+USE TSQL2012;
+SELECT * FROM Sales.OrderDetails
+
+
+-- pivot and unpivot
+
+USE TSQL2012;
+IF OBJECT_ID('dbo.Orders', 'U') IS NOT NULL DROP TABLE dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+ orderid INT NOT NULL,
+ orderdate DATE NOT NULL,
+ empid INT NOT NULL,
+ custid VARCHAR(5) NOT NULL,
+ qty INT NOT NULL,
+ CONSTRAINT PK_Orders PRIMARY KEY(orderid)
+);
+
+INSERT INTO dbo.Orders(orderid, orderdate, empid, custid, qty)
+VALUES
+ (30001, '20070802', 3, 'A', 10),
+ (10001, '20071224', 2, 'A', 12),
+ (10005, '20071224', 1, 'B', 20),
+ (40001, '20080109', 2, 'A', 40),
+ (10006, '20080118', 1, 'C', 14),
+ (20001, '20080212', 2, 'B', 12),
+ (40005, '20090212', 3, 'A', 10),
+ (20002, '20090216', 1, 'C', 20),
+ (30003, '20090418', 2, 'B', 15),
+ (30004, '20070418', 3, 'C', 22),
+ (30007, '20090907', 3, 'D', 30);
+
+
+SELECT * FROM dbo.Orders;
+
+
+
+
+SELECT empid, custid, qty
+ 		FROM dbo.Orders
+
+SELECT empid, A, B, C, D
+FROM (SELECT empid, custid, qty
+ 		FROM dbo.Orders) AS D
+ PIVOT(SUM(qty) FOR custid IN(A, B, C, D)) AS P;
+
+
+
+ USE TSQL2012;
+IF OBJECT_ID('dbo.EmpCustOrders', 'U') IS NOT NULL DROP TABLE dbo.EmpCustOrders;
+CREATE TABLE dbo.EmpCustOrders
+(
+ empid INT NOT NULL
+ CONSTRAINT PK_EmpCustOrders PRIMARY KEY,
+ A VARCHAR(5) NULL,
+ B VARCHAR(5) NULL,
+ C VARCHAR(5) NULL,
+ D VARCHAR(5) NULL
+);
+
+
+INSERT INTO dbo.EmpCustOrders(empid, A, B, C, D)
+ SELECT empid, A, B, C, D
+ FROM (SELECT empid, custid, qty
+ FROM dbo.Orders) AS D
+ PIVOT(SUM(qty) FOR custid IN(A, B, C, D)) AS P;
+SELECT * FROM dbo.EmpCustOrders;
+
+
+SELECT empid, custid, qty
+FROM dbo.EmpCustOrders
+ UNPIVOT(qty FOR custid IN(A, B, C, D)) AS U;
+
+
+SELECT empid, custid, SUM(qty) AS sumqty
+FROM dbo.Orders
+GROUP BY
+ GROUPING SETS
+ (
+ (empid, custid),
+ (empid),
+ (custid),
+ ()
+ )
+
+
+
+
+
+
+
+ -- chapter 10 Programmiable Objects --
+
+DECLARE @i AS INT;
+SET @i = 10;
+
+
+
+
+USE TSQL2012;
+DECLARE @empname AS NVARCHAR(31);
+SET @empname = (SELECT firstname + N' ' + lastname
+ FROM HR.Employees
+ WHERE empid = 3);
+SELECT @empname AS empname;
+
+
+
+DECLARE @i AS INT = 1;
+WHILE @i <= 10
+BEGIN
+ PRINT @i;
+ SET @i = @i + 1;
+END;
+
+
+DECLARE @i AS INT = 1;
+WHILE @i <= 10
+BEGIN
+ IF @i = 6 BREAK;
+ PRINT @i;
+ SET @i = @i + 1;
+END;
+
+
+
+
+DECLARE @sql AS VARCHAR(100);
+SET @sql = 'PRINT ''This message was printed by a dynamic SQL batch.'';';
+EXEC(@sql);
+
+
+
+DECLARE @i AS INT = 2;
+DECLARE @j AS INT = 2;
+DECLARE @isprime AS INT = 1; 
+
+WHILE @i <= 100
+BEGIN
+	SET @isprime = 1;
+	SET @j = 2;
+	WHILE @j < @i
+	BEGIN
+		IF @i % @j = 0
+		BEGIN
+			SET @isprime = 0;
+			BREAK;
+		END;
+		SET @j 	= @j + 1;
+	END;
+	IF @isprime = 1
+	BEGIN
+		PRINT @i;
+	END;
+	SET @i = @i + 1;
+END;
+
+
